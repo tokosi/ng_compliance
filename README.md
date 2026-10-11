@@ -17,25 +17,40 @@ Verified against the FEDCO draft payslip: Basic ₦1,200,000 → Pension ₦96,0
 
 ---
 
-## Part 1 — Put the app on GitHub (once)
+## Part 1 — Repository layout (github.com/tokosi/ng_compliance)
 
-On your laptop, unzip `ng_compliance.zip`, then:
+`bench get-app` only accepts this layout — `pyproject.toml` at the top, the Python package in `ng_compliance/`,
+and `hooks.py` inside it:
+
+```
+ng_compliance/                 <- repository root
+├── pyproject.toml
+├── README.md
+├── license.txt
+├── .gitignore
+├── tests/  tools/
+└── ng_compliance/             <- Python package
+    ├── __init__.py
+    ├── hooks.py
+    ├── modules.txt  patches.txt
+    ├── data/ setup/ overrides/ utils/ templates/ public/
+    └── ng_compliance/         <- module "NG Compliance" (reports, print formats)
+```
+
+To publish a change from your laptop:
 
 ```bash
+git clone https://github.com/tokosi/ng_compliance.git
 cd ng_compliance
-git init -b main
-git add .
-git commit -m "NG Compliance v1.1: FEDCO CoA, NTA 2025 PAYE, VAT, ESS, payslip"
+# ...edit files...
+git add -A
+git commit -m "Describe the change"
+git push                       # GitHub username + a personal access token as the password
 ```
 
-On GitHub, create a **private** repository named `ng_compliance` (no README, no .gitignore — the app already has them), then:
-
-```bash
-git remote add origin git@github.com:<your-org>/ng_compliance.git
-git push -u origin main
-```
-
-Keep the repository **private**: it contains the company's chart of accounts and registration details.
+The repository is **public**, so anyone can read the chart of accounts and the RC number / TIN in
+`ng_compliance/data/fedco_profile.json`. Those already appear on invoices, so that's usually acceptable. If not, make
+the repo private (Settings → Danger Zone → Change visibility) and use *If you make the repo private later* below.
 
 ---
 
@@ -53,37 +68,24 @@ bench --site erp.fedco.ng list-apps
 bench --site erp.fedco.ng backup --with-files
 ```
 
-Don't continue if `hrms` is missing — install Frappe HR v16 first (`bench get-app --branch version-16 hrms` and `bench --site erp.fedco.ng install-app hrms`).
+Don't continue if `hrms` is missing — install Frappe HR v16 first (`bench get-app --branch version-16 hrms` and
+`bench --site erp.fedco.ng install-app hrms`).
 
-### Step 2 — Give the server read access to the private repo (deploy key)
+### Step 2 — Get the app from GitHub
+
+The repo is public, so no keys or tokens are needed:
 
 ```bash
-ssh-keygen -t ed25519 -C "erp-server ng_compliance" -f ~/.ssh/ng_compliance_deploy -N ""
-cat ~/.ssh/ng_compliance_deploy.pub
+bench get-app https://github.com/tokosi/ng_compliance.git --branch main
 ```
 
-On GitHub: **Repository → Settings → Deploy keys → Add deploy key**, paste the key, leave *Allow write access* **off**.
+This clones into `apps/ng_compliance`, installs it into the bench's Python environment and adds it to
+`sites/apps.txt`. If it says the app already exists (from an earlier attempt), remove that copy first with
+`bench remove-app ng_compliance --force` — only when it isn't installed on any site — and run `get-app` again.
 
-Tell SSH to use that key for GitHub:
-
-```bash
-cat >> ~/.ssh/config <<'EOF'
-Host github.com
-  IdentityFile ~/.ssh/ng_compliance_deploy
-  IdentitiesOnly yes
-EOF
-chmod 600 ~/.ssh/config
-ssh -T git@github.com         # should greet you with the repo name
-```
-
-*(Alternative: a fine-grained personal access token with read-only "Contents" on this one repo, using
-`https://<token>@github.com/<your-org>/ng_compliance.git` below. The token ends up in the git remote,
-so prefer the deploy key.)*
-
-### Step 3 — Get and install the app
+### Step 3 — Install it on the site
 
 ```bash
-bench get-app git@github.com:<your-org>/ng_compliance.git --branch main
 bench --site erp.fedco.ng install-app ng_compliance
 bench --site erp.fedco.ng migrate
 bench build --app ng_compliance
@@ -151,20 +153,34 @@ Every step is safe to re-run. Read the printed log — lines starting with `!` n
 ```bash
 cd ~/frappe-bench
 bench --site erp.fedco.ng backup
-bench update --apps ng_compliance --pull     # or: cd apps/ng_compliance && git pull && cd ../..
+cd apps/ng_compliance && git pull origin main && cd ../..
 bench --site erp.fedco.ng migrate
 bench build --app ng_compliance
 bench restart
 ```
 
+### If you make the repo private later
+
+Give the server a read-only deploy key and switch the app's remote to SSH:
+
+```bash
+ssh-keygen -t ed25519 -C "erp-server ng_compliance" -f ~/.ssh/ng_compliance_deploy -N ""
+cat ~/.ssh/ng_compliance_deploy.pub    # GitHub: repo → Settings → Deploy keys → Add (write access off)
+printf 'Host github.com\n  IdentityFile ~/.ssh/ng_compliance_deploy\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+chmod 600 ~/.ssh/config
+cd ~/frappe-bench/apps/ng_compliance
+git remote set-url origin git@github.com:tokosi/ng_compliance.git
+git pull origin main
+```
+
 ### Docker (frappe_docker) or Frappe Cloud
 
 * **frappe_docker**: add the repo to your `apps.json`
-  (`{"url": "https://<token>@github.com/<your-org>/ng_compliance.git", "branch": "main"}`), rebuild the custom image,
+  (`{"url": "https://github.com/tokosi/ng_compliance.git", "branch": "main"}`), rebuild the custom image,
   redeploy, then run `bench --site <site> install-app ng_compliance` and Steps 4–6 inside the backend container
   (`docker compose exec backend bash`).
-* **Frappe Cloud**: Bench group → *Apps* → *Add app* → *GitHub* (grant the Frappe Cloud GitHub app access to the
-  private repo) → deploy → install on the site. Run Steps 4–5 from *Site → Console* using the same
+* **Frappe Cloud**: Bench group → *Apps* → *Add app* → public GitHub URL `https://github.com/tokosi/ng_compliance`
+  (branch `main`) → deploy → install on the site. Run Steps 4–5 from *Site → Console* using the same
   `ng_compliance.setup...` functions.
 
 ---
