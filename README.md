@@ -155,7 +155,9 @@ Every step is safe to re-run. Read the printed log — lines starting with `!` n
 ```bash
 cd ~/frappe-bench
 bench --site erp.fedco.ng backup
-cd apps/ng_compliance && git pull origin main && cd ../..
+cd apps/ng_compliance && git pull upstream main && cd ../..
+# bench names the GitHub remote "upstream". If git reports "dubious ownership", run once:
+#   git config --global --add safe.directory "$(pwd)/apps/ng_compliance"
 bench --site erp.fedco.ng migrate
 bench build --app ng_compliance
 bench restart
@@ -171,8 +173,8 @@ cat ~/.ssh/ng_compliance_deploy.pub    # GitHub: repo → Settings → Deploy ke
 printf 'Host github.com\n  IdentityFile ~/.ssh/ng_compliance_deploy\n  IdentitiesOnly yes\n' >> ~/.ssh/config
 chmod 600 ~/.ssh/config
 cd ~/frappe-bench/apps/ng_compliance
-git remote set-url origin git@github.com:tokosi/ng_compliance.git
-git pull origin main
+git remote set-url upstream git@github.com:tokosi/ng_compliance.git
+git pull upstream main
 ```
 
 ### Docker (frappe_docker) or Frappe Cloud
@@ -196,7 +198,13 @@ git pull origin main
 2. **Salary Structure Assignment**: Structure *Nigeria Monthly (NTA 2025)*, Income Tax Slab *Nigeria NTA 2025*,
    From date, then *Monthly Pay (Nigeria)*: Basic, COLA, Housing, Transport, Other allowances, NHIS/life premium,
    HMO premium (defaults to ₦1,250), Exchange rate (expatriates). *Base* is calculated. Typing only *Base* pays it all as
-   Basic. For mid-year starts, fill *Taxable Earnings Till Date* / *Tax Deducted Till Date*.
+   Basic.
+   **Opening balances (important):** Frappe HR computes PAYE cumulatively over the payroll year. If ERPNext's first
+   payslip for someone is not January, fill *Taxable Earnings Till Date* (chargeable income already paid this year,
+   i.e. gross minus pension/NHF/NHIS minus rent relief) and *Tax Deducted Till Date* (PAYE already deducted). Example:
+   ₦1.2m basic paid Jan–Aug outside ERPNext → 8 × ₦1,104,000 = ₦8,832,000 and 8 × ₦184,340 = ₦1,474,720; September
+   PAYE is then ₦184,340. Without them, September would tax only Sept–Dec income (lower PAYE). The assignment's
+   *From Date* must fall inside the payroll year for the openings to count.
 3. **Each month**: Overtime, Variable pay/bonus and Loan/other deductions go in as **Additional Salary** before running payroll.
 4. Re-run `setup_ess` after adding employees so they get logins.
 

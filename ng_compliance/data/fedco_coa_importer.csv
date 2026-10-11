@@ -64,7 +64,7 @@ Bank - USD,Cash at Bank & In Hand,10005,H04,0,Bank,Asset,USD
 Accounts Payable - Farmers/Agents,Accounts Payable,20001,H05,0,Payable,Liability,
 Accrued Expenses,Accounts Payable,20002,H05,0,,Liability,
 Trade Payables,Accounts Payable,20003,H05,0,Payable,Liability,
-Salary Control Account,Accounts Payable,20004,H05,0,,Liability,
+Salary Control Account,Accounts Payable,20004,H05,0,Payable,Liability,
 Foreign Currency Trade Liability,Accounts Payable,20005,H05,0,,Liability,USD
 Goods Received Not Invoiced (GRNI),Accounts Payable,20006,H05,0,Stock Received But Not Billed,Liability,
 Customer Advances / Contract Liabilities,Accounts Payable,20007,H05,0,,Liability,

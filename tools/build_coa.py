@@ -42,6 +42,7 @@ ACCOUNT_TYPES = {
 	"10005": "Bank",
 	"20001": "Payable",
 	"20003": "Payable",
+	"20004": "Payable",  # payroll payable: Frappe HR v16 requires account type Payable
 	"20006": "Stock Received But Not Billed",
 	**{c: "Tax" for c in ("20011", "20012", "20013", "20014", "20015", "20016", "20017", "20019")},
 	"40001": "Income Account",

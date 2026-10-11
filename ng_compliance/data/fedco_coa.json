@@ -446,7 +446,7 @@
    "name": "Salary Control Account",
    "headline": "H05",
    "root_type": "Liability",
-   "account_type": "",
+   "account_type": "Payable",
    "currency": ""
   },
   {

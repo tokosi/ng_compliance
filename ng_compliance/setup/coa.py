@@ -84,6 +84,21 @@ def _find(company, number, name, is_group, log, renumber_existing=False):
 	return _renumber(by_name.name, name, number, log)
 
 
+def _ensure_account_type(acc_name, account_type, log):
+	"""Fill in a missing account type on an existing account (e.g. 20004 must be Payable)."""
+	if not account_type or frappe.db.get_value("Account", acc_name, "account_type"):
+		return
+	frappe.db.savepoint("ng_acc_type")
+	try:
+		acc = frappe.get_doc("Account", acc_name)
+		acc.account_type = account_type
+		acc.save(ignore_permissions=True)
+		log.append(f"# {acc_name}: account type set to {account_type}")
+	except Exception as e:
+		frappe.db.rollback(save_point="ng_acc_type")
+		log.append(f"! {acc_name}: could not set account type {account_type}: {e}")
+
+
 @frappe.whitelist()
 def import_chart(company, disable_unused_standard=0, set_defaults=1, renumber_existing=0):
 	frappe.only_for(("System Manager", "Accounts Manager"))
@@ -115,6 +130,7 @@ def import_chart(company, disable_unused_standard=0, set_defaults=1, renumber_ex
 		existing = _find(company, a["code"], a["name"], 0, log, int(renumber_existing))
 		if existing:
 			log.append(f"= {existing}")
+			_ensure_account_type(existing, a["account_type"], log)
 			continue
 		acc = frappe.get_doc({
 			"doctype": "Account",

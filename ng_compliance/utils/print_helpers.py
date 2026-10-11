@@ -141,6 +141,12 @@ def _ssa_exchange_rate(employee, on_date):
 	return flt(frappe.db.get_value("Salary Structure Assignment", ssa[0].name, "ng_exchange_rate"))
 
 
+def employer_contributions_for(doc):
+	from ng_compliance.payroll import employer_contributions_for as _ec
+
+	return _ec(doc)
+
+
 def _is_employer(row):
 	"""Employer contribution kept as a statistical deduction (Frappe HR builds before v16.12)."""
 	from ng_compliance.setup.payroll import EMPLOYER_COMPONENTS
@@ -183,9 +189,9 @@ def ng_payslip(doc):
 		],
 		earnings=_rows(earnings_layout, doc.earnings),
 		deductions=_rows(deductions_layout, [d for d in doc.deductions or [] if not _is_employer(d)]),
-		employer=[r for r in _rows(employer_layout,
-			list(doc.get("employer_contributions") or []) + [d for d in doc.deductions or [] if _is_employer(d)])
-			if r.amount],
+		employer=[r for r in _rows(employer_layout, [
+			frappe._dict(salary_component=k, amount=v) for k, v in employer_contributions_for(doc).items()
+		]) if r.amount],
 		gross=gross,
 		total_deductions=flt(doc.total_deduction),
 		net=flt(doc.net_pay),
