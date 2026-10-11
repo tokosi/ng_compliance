@@ -28,8 +28,18 @@ SLAB_NAME = "Nigeria NTA 2025"
 STRUCTURE_NAME = "Nigeria Monthly (NTA 2025)"
 RENT_RELIEF = "Rent Relief"
 
-EMOLUMENTS = "(B + COLA + HA + TA + OA)"
-PENSIONABLE = "(B + HA + TA)"
+# Formulas use {TOKENS} that are replaced with each earning's ACTUAL abbreviation: if another
+# component already uses "B", Frappe HR saves ours as "B_1" and a hard-coded "B" would read the
+# wrong component (0).
+TOKEN_COMPONENTS = {
+	"B": "Basic Salary",
+	"COLA": "Cost of Living Allowance",
+	"HA": "Housing Allowance",
+	"TA": "Transport Allowance",
+	"OA": "Other Allowances",
+}
+EMOLUMENTS = "({B} + {COLA} + {HA} + {TA} + {OA})"
+PENSIONABLE = "({B} + {HA} + {TA})"
 
 
 def _pct(x):
@@ -54,7 +64,7 @@ def components():
 		("Variable Pay / Bonus", "VP", "Earning", "", "", one_off, "staff_costs", False),
 		("Employee Pension", "PEN", "Deduction", f"{PENSIONABLE} * {_pct(p['employee_pension_rate'])}", "",
 			{"exempted_from_income_tax": 1, "depends_on_payment_days": 0}, "pension_payable", True),
-		("National Housing Fund", "NHF", "Deduction", f"B * {_pct(p['nhf_rate'])}", "ng_nhf_opt_in",
+		("National Housing Fund", "NHF", "Deduction", f"{{B}} * {_pct(p['nhf_rate'])}", "ng_nhf_opt_in",
 			{"exempted_from_income_tax": 1, "depends_on_payment_days": 0, "remove_if_zero_valued": 1},
 			"nhf_payable", True),
 		("NHIS / Life Premium", "NHIS", "Deduction", "(ng_nhis_deduction or 0)", "",
@@ -107,6 +117,17 @@ def _resolve(ctype, flags, mapping):
 	return "Deduction", {**flags, **STATISTICAL}, mapping[1]
 
 
+def actual_abbr(component, intended):
+	return frappe.db.get_value("Salary Component", component, "salary_component_abbr") or intended
+
+
+def resolve_formula(formula):
+	"""Replace {TOKEN}s with the real abbreviations stored on the earning components."""
+	if not formula or "{" not in formula:
+		return formula
+	return formula.format(**{tok: actual_abbr(comp, tok) for tok, comp in TOKEN_COMPONENTS.items()})
+
+
 def _has(doctype, field):
 	return frappe.get_meta(doctype).has_field(field)
 
@@ -154,9 +175,9 @@ def structure_rows():
 		if not in_structure:
 			continue
 		ctype, flags, _m = _resolve(ctype, flags, mapping)
-		row = {"salary_component": name, "abbr": abbr}
+		row = {"salary_component": name, "abbr": actual_abbr(name, abbr)}
 		if formula:
-			row.update({"amount_based_on_formula": 1, "formula": formula})
+			row.update({"amount_based_on_formula": 1, "formula": resolve_formula(formula)})
 		if condition:
 			row["condition"] = condition
 		row.update({k: v for k, v in flags.items() if k != "remove_if_zero_valued"})
@@ -175,10 +196,11 @@ def create_components(company):
 			doc = frappe.new_doc("Salary Component")
 			doc.salary_component = name
 			action = "created"
-		doc.salary_component_abbr = abbr
+		if not doc.salary_component_abbr:
+			doc.salary_component_abbr = abbr  # Frappe HR appends _1 if another component uses it
 		doc.type = ctype
 		doc.amount_based_on_formula = 1 if formula else 0
-		doc.formula = formula or None
+		doc.formula = resolve_formula(formula) or None
 		doc.condition = condition or None
 		for k, v in flags.items():
 			if _has("Salary Component", k):
@@ -255,7 +277,7 @@ def create_rent_relief_category():
 
 def create_salary_structure(company):
 	if frappe.db.exists("Salary Structure", STRUCTURE_NAME):
-		return f"Salary Structure {STRUCTURE_NAME}: exists (cancel & amend it to change)"
+		return repair_salary_structure()
 	ss = frappe.new_doc("Salary Structure")
 	_set_name(ss, STRUCTURE_NAME)
 	ss.company = company
@@ -267,6 +289,30 @@ def create_salary_structure(company):
 	ss.insert(ignore_permissions=True)
 	ss.submit()
 	return f"Salary Structure {STRUCTURE_NAME}: created and submitted"
+
+
+@frappe.whitelist()
+def repair_salary_structure(structure=STRUCTURE_NAME):
+	"""Bring an existing (even submitted) structure's abbreviations and formulas in line with
+	the components, the same way Frappe HR's own "update salary structures" does it."""
+	ss = frappe.get_doc("Salary Structure", structure)
+	wanted = {row["salary_component"]: (table, row) for table, row in structure_rows()}
+	changes = []
+	for table in ("earnings", "deductions", "employer_contributions"):
+		for d in ss.get(table) or []:
+			if d.salary_component not in wanted:
+				continue
+			row = wanted[d.salary_component][1]
+			for field in ("abbr", "formula", "condition"):
+				new = row.get(field) or None
+				if (d.get(field) or None) != new:
+					changes.append(f"{d.salary_component}.{field}: {d.get(field)!r} -> {new!r}")
+					d.set(field, new)
+	if not changes:
+		return f"Salary Structure {structure}: up to date"
+	ss.db_update_all()
+	ss.clear_cache()
+	return f"Salary Structure {structure}: repaired\n  " + "\n  ".join(changes)
 
 
 @frappe.whitelist()
