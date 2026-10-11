@@ -115,7 +115,9 @@ bench --site erp.fedco.ng execute ng_compliance.setup.coa.import_chart \
   --kwargs "{'company': 'FEDCO West Africa Limited'}"
 ```
 
-Add `'disable_unused_standard': 1` to disable old Standard-chart leaf accounts that have no postings. Then move open
+Add `'renumber_existing': 1` to give same-named standard accounts that already carry a number (e.g. `1110 - Cash`)
+their FEDCO number (`10001 - Cash`); renumbering is refused if anything was posted in the last 5 minutes. Add
+`'disable_unused_standard': 1` to disable old Standard-chart leaf accounts that have no postings. Then move open
 balances from old accounts to the FEDCO ones with a Journal Entry and review the result in *Chart of Accounts*.
 
 ### Step 5 — Run the rest of the setup
@@ -204,7 +206,14 @@ Employee → **Employee Tax Exemption Declaration** → Payroll Period *Nigeria 
 submits; PAYE reflects it from the next run. No declaration, no relief (CRA was abolished).
 
 ### Monthly payroll
-Payroll Entry → *Get Employees* → *Create Salary Slips* → review → *Submit Salary Slips*. Postings:
+Payroll Entry → *Get Employees* → *Create Salary Slips* → review → *Submit Salary Slips*.
+
+**Frappe HR older than v16.12** (no "Employer Contribution" component type — the payroll setup log says which mode
+it used): employer pension, NSITF, ITF and HMO are shown on the payslip but not posted automatically. After submitting
+the slips, click **Nigeria → Post Employer Contributions** on the Payroll Entry. It creates one Journal Entry
+(Dr 60001 / Cr 20014, 20016, 20017, 20008) and won't post twice. On v16.12+ this happens automatically.
+
+Postings:
 
 | | Debit | Credit |
 |---|---|---|

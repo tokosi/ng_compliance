@@ -156,6 +156,7 @@ def create_tax_rules(company):
 			continue
 		if frappe.db.exists("Tax Rule", {"company": company, "tax_type": tax_type, "tax_category": cat}):
 			continue
+		frappe.db.savepoint("ng_sp_1")
 		try:
 			frappe.get_doc({
 				"doctype": "Tax Rule",
@@ -167,7 +168,7 @@ def create_tax_rules(company):
 			}).insert(ignore_permissions=True)
 			log.append(f"Tax Rule {tax_type} / {cat} -> {template}: created")
 		except Exception as e:
-			frappe.db.rollback()
+			frappe.db.rollback(save_point="ng_sp_1")
 			log.append(f"! Tax Rule {tax_type} / {cat}: {e}")
 	return log
 
@@ -199,6 +200,7 @@ def create_wht_categories(company):
 				doc.save(ignore_permissions=True)
 			log.append(f"Tax Withholding Category {title}: exists")
 			continue
+		frappe.db.savepoint("ng_sp_2")
 		try:
 			doc = frappe.new_doc("Tax Withholding Category")
 			doc.name = title
@@ -218,6 +220,6 @@ def create_wht_categories(company):
 			doc.insert(ignore_permissions=True)
 			log.append(f"Tax Withholding Category {title}: created")
 		except Exception as e:
-			frappe.db.rollback()
+			frappe.db.rollback(save_point="ng_sp_2")
 			log.append(f"Tax Withholding Category {title}: FAILED ({e}); create it manually")
 	return log

@@ -13,10 +13,11 @@ from ng_compliance.setup.payroll import setup_nigeria_payroll
 
 
 @frappe.whitelist()
-def run(company, year=2026, wht=1, create_employee_users=1, send_welcome_email=0, disable_unused_standard=0):
+def run(company, year=2026, wht=1, create_employee_users=1, send_welcome_email=0, disable_unused_standard=0,
+		renumber_existing=0):
 	frappe.only_for("System Manager")
 	print("== Chart of accounts ==")
-	import_chart(company, disable_unused_standard=disable_unused_standard)
+	import_chart(company, disable_unused_standard=disable_unused_standard, renumber_existing=renumber_existing)
 	print("== VAT / WHT ==")
 	setup_nigeria_accounts(company, wht=wht)
 	print("== Payroll ==")

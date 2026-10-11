@@ -25,6 +25,8 @@ doc_events = {
 	},
 }
 
+doctype_js = {"Payroll Entry": "public/js/payroll_entry.js"}
+
 # Helpers available inside print formats (payslip + VAT invoice)
 jinja = {
 	"methods": [

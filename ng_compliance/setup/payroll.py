@@ -83,6 +83,29 @@ def components():
 
 TABLE_FOR_TYPE = {"Earning": "earnings", "Deduction": "deductions", "Employer Contribution": "employer_contributions"}
 
+EMPLOYER_COMPONENTS = ("Employer Pension", "NSITF Employer", "ITF Employer", "HMO Premium", "Group Life Assurance")
+
+# Older Frappe HR v16 builds (before v16.12) have no "Employer Contribution" type: employer costs are
+# then kept as statistical deductions (shown on the slip, not deducted, not posted) and posted with
+# ng_compliance.payroll.post_employer_contributions (button on the submitted Payroll Entry).
+STATISTICAL = {"statistical_component": 1, "do_not_include_in_total": 1, "depends_on_payment_days": 0}
+
+
+def supports_employer_contribution():
+	field = frappe.get_meta("Salary Component").get_field("type")
+	return bool(field and "Employer Contribution" in (field.options or ""))
+
+
+def _resolve(ctype, flags, mapping):
+	"""Map an Employer Contribution row onto what this Frappe HR build supports."""
+	if ctype != "Employer Contribution":
+		return ctype, flags, mapping
+	if supports_employer_contribution():
+		# clear flags left over if the component was statistical on an older build
+		return ctype, {**flags, "statistical_component": 0, "do_not_include_in_total": 0}, mapping
+	# statistical rows never post; keep the liability account for reference only
+	return "Deduction", {**flags, **STATISTICAL}, mapping[1]
+
 
 def _has(doctype, field):
 	return frappe.get_meta(doctype).has_field(field)
@@ -99,7 +122,11 @@ def _set_name(doc, name):
 def setup_nigeria_payroll(company, year=2026):
 	frappe.only_for(("System Manager", "HR Manager"))
 	year = int(year)
-	log = []
+	log = ["Employer contributions: " + (
+		"native (Employer Contribution components, posted automatically)" if supports_employer_contribution()
+		else "statistical rows (this Frappe HR build is older than v16.12) - post them with the "
+		"'Post Employer Contributions' button on each submitted Payroll Entry"
+	)]
 	log += create_components(company)
 	log.append(create_income_tax_slab(company, year))
 	log.append(create_payroll_period(company, year))
@@ -120,9 +147,27 @@ def _account_row(company, mapping):
 	return ({"company": company, "account": acc} if acc else None), ([] if acc else [mapping])
 
 
+def structure_rows():
+	"""(table, row) for every component that belongs in the salary structure."""
+	out = []
+	for name, abbr, ctype, formula, condition, flags, mapping, in_structure in components():
+		if not in_structure:
+			continue
+		ctype, flags, _m = _resolve(ctype, flags, mapping)
+		row = {"salary_component": name, "abbr": abbr}
+		if formula:
+			row.update({"amount_based_on_formula": 1, "formula": formula})
+		if condition:
+			row["condition"] = condition
+		row.update({k: v for k, v in flags.items() if k != "remove_if_zero_valued"})
+		out.append((TABLE_FOR_TYPE[ctype], row))
+	return out
+
+
 def create_components(company):
 	log = []
 	for name, abbr, ctype, formula, condition, flags, mapping, _in in components():
+		ctype, flags, mapping = _resolve(ctype, flags, mapping)
 		if frappe.db.exists("Salary Component", name):
 			doc = frappe.get_doc("Salary Component", name)
 			action = "updated"
@@ -217,16 +262,8 @@ def create_salary_structure(company):
 	ss.payroll_frequency = "Monthly"
 	ss.currency = frappe.get_cached_value("Company", company, "default_currency") or "NGN"
 	ss.is_active = "Yes"
-	for name, abbr, ctype, formula, condition, flags, _m, in_structure in components():
-		if not in_structure:
-			continue
-		row = {"salary_component": name, "abbr": abbr}
-		if formula:
-			row.update({"amount_based_on_formula": 1, "formula": formula})
-		if condition:
-			row["condition"] = condition
-		row.update({k: v for k, v in flags.items() if k != "remove_if_zero_valued"})
-		ss.append(TABLE_FOR_TYPE[ctype], row)
+	for table, row in structure_rows():
+		ss.append(table, row)
 	ss.insert(ignore_permissions=True)
 	ss.submit()
 	return f"Salary Structure {STRUCTURE_NAME}: created and submitted"

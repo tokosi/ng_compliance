@@ -10,7 +10,9 @@ B. Existing company (already has the Standard chart and/or transactions) -> this
    FEDCO headline groups (H01..H24) and sub-ledgers under the existing root groups, matching on
    account number so it's safe to re-run. Existing accounts are never deleted; pass
    disable_unused_standard=1 to disable leaf accounts that are not in the FEDCO chart and have
-   no ledger postings.
+   no ledger postings, and renumber_existing=1 to give same-named standard accounts that already
+   carry a number (e.g. "1110 - Cash") their FEDCO number (e.g. "10001 - Cash"). Renumbering is
+   refused while ledger entries were posted in the last 5 minutes.
 
     bench --site <site> execute ng_compliance.setup.coa.import_chart \
         --kwargs "{'company': 'FEDCO West Africa Limited'}"
@@ -45,7 +47,24 @@ def _root(company, root_type):
 	return acc.name
 
 
-def _find(company, number, name, is_group, log):
+def _renumber(acc_name, name, number, log):
+	from erpnext.accounts.doctype.account.account import update_account_number
+
+	frappe.db.savepoint("ng_renumber")
+	try:
+		new_name = update_account_number(acc_name, name, number)
+		new_name = new_name or frappe.db.get_value(
+			"Account", {"account_number": number, "company": frappe.db.get_value("Account", acc_name, "company")}, "name"
+		) or acc_name
+		log.append(f"# numbered {acc_name} -> {new_name}")
+		return new_name
+	except Exception as e:
+		frappe.db.rollback(save_point="ng_renumber")
+		log.append(f"! could not number {acc_name} as {number}: {e}")
+		return acc_name
+
+
+def _find(company, number, name, is_group, log, renumber_existing=False):
 	"""Existing account by number, else by name (then stamp the FEDCO number on it)."""
 	by_number = frappe.db.get_value(
 		"Account", {"company": company, "account_number": number, "is_group": is_group}, "name"
@@ -58,30 +77,22 @@ def _find(company, number, name, is_group, log):
 	)
 	if not by_name:
 		return None
-	if by_name.account_number:
-		log.append(f"! {by_name.name} has number {by_name.account_number}, FEDCO uses {number}; left unchanged")
+	if by_name.account_number and not renumber_existing:
+		log.append(f"! {by_name.name} has number {by_name.account_number}, FEDCO uses {number}; left unchanged "
+			"(re-run with renumber_existing=1 to change it)")
 		return by_name.name
-	try:
-		from erpnext.accounts.doctype.account.account import update_account_number
-
-		new_name = update_account_number(by_name.name, name, number)
-		log.append(f"# numbered {by_name.name} -> {new_name}")
-		return new_name or by_name.name
-	except Exception as e:
-		frappe.db.rollback()
-		log.append(f"! could not number {by_name.name} as {number}: {e}")
-		return by_name.name
+	return _renumber(by_name.name, name, number, log)
 
 
 @frappe.whitelist()
-def import_chart(company, disable_unused_standard=0, set_defaults=1):
+def import_chart(company, disable_unused_standard=0, set_defaults=1, renumber_existing=0):
 	frappe.only_for(("System Manager", "Accounts Manager"))
 	chart = load_chart()
 	currency = frappe.get_cached_value("Company", company, "default_currency")
 	log, groups = [], {}
 
 	for h in chart["headlines"]:
-		existing = _find(company, h["code"], h["name"], 1, log)
+		existing = _find(company, h["code"], h["name"], 1, log, int(renumber_existing))
 		if existing:
 			groups[h["code"]] = existing
 			log.append(f"= {existing}")
@@ -101,7 +112,7 @@ def import_chart(company, disable_unused_standard=0, set_defaults=1):
 		log.append(f"+ {acc.name}")
 
 	for a in chart["accounts"]:
-		existing = _find(company, a["code"], a["name"], 0, log)
+		existing = _find(company, a["code"], a["name"], 0, log, int(renumber_existing))
 		if existing:
 			log.append(f"= {existing}")
 			continue
@@ -118,11 +129,12 @@ def import_chart(company, disable_unused_standard=0, set_defaults=1):
 		})
 		if a["account_type"] == "Tax":
 			acc.tax_rate = 7.5 if a["code"] in ("20013", "10021", "10022") else 0
+		frappe.db.savepoint("ng_sp_1")
 		try:
 			acc.insert(ignore_permissions=True)
 			log.append(f"+ {acc.name}")
 		except Exception as e:
-			frappe.db.rollback()
+			frappe.db.rollback(save_point="ng_sp_1")
 			log.append(f"! {a['code']} {a['name']}: {e}")
 
 	if int(disable_unused_standard):
@@ -177,13 +189,14 @@ def set_company_defaults(company):
 		if not acc:
 			log.append(f"! default {field}: account {number} not found")
 			continue
+		frappe.db.savepoint("ng_sp_2")
 		try:
 			comp = frappe.get_doc("Company", company)
 			comp.set(field, acc)
 			comp.save(ignore_permissions=True)
 			log.append(f"default {field} = {acc}")
 		except Exception as e:
-			frappe.db.rollback()
+			frappe.db.rollback(save_point="ng_sp_2")
 			log.append(f"! default {field}: {e}")
 
 	details = profile.get("company_details", {})
